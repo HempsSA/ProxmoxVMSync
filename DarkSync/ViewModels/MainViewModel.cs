@@ -304,25 +304,29 @@ public partial class MainViewModel : ObservableObject
         _schedulerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _schedulerTimer.Tick += async (_, _) => { try { await CheckScheduleAsync(); } catch (Exception ex) { LogScheduler($"Tick exception: {ex.Message}"); } };
         _schedulerTimer.Start();
+        LogScheduler($"Timer started. Enabled={ScheduleEnabled}, Time='{ScheduleTime}'");
     }
 
     private async Task CheckScheduleAsync()
     {
-        if (_scheduleRunning || !ScheduleEnabled) return;
-        if (!TimeOnly.TryParse(ScheduleTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduled)) return;
+        if (_scheduleRunning || !ScheduleEnabled) { LogScheduler($"Skipped: running={_scheduleRunning}, enabled={ScheduleEnabled}"); return; }
+        if (!TimeOnly.TryParse(ScheduleTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduled)) { LogScheduler($"Bad time: '{ScheduleTime}'"); return; }
         var now = DateTime.Now; var today = now.Date.ToString("yyyy-MM-dd");
         var due = new TimeOnly(now.Hour, now.Minute) >= scheduled;
         _config = CollectConfig();
-        if (_config.ScheduleLastRunDate == today) return;
-        if (!due) return;
+        LogScheduler($"Tick: now={now:HH:mm}, sched={scheduled:HH:mm}, due={due}, lastRun='{_config.ScheduleLastRunDate}'");
+        if (_config.ScheduleLastRunDate == today) { LogScheduler("Already ran today."); return; }
+        if (!due) { LogScheduler("Not due yet."); return; }
         _scheduleRunning = true;
         try
         {
             StatusText = $"[Scheduler] Starting {(ScheduleDryRun ? "Dry Run" : "Sync")} at {now:HH:mm:ss}...";
+            LogScheduler(">>> TRIGGERED");
             await RunSyncAsync(dry: ScheduleDryRun, isScheduled: true);
-            if (_syncCompletedSuccessfully) { _config.ScheduleLastRunDate = today; ConfigService.Save(_config); }
+            if (_syncCompletedSuccessfully) { _config.ScheduleLastRunDate = today; ConfigService.Save(_config); LogScheduler($"Marked run for {today}"); }
+            else LogScheduler("Sync did not complete.");
         }
-        catch (Exception ex) { StatusText = $"Scheduled run failed: {ex.Message}"; }
+        catch (Exception ex) { StatusText = $"Scheduled run failed: {ex.Message}"; LogScheduler($"Exception: {ex.Message}"); }
         finally { _scheduleRunning = false; UpdateScheduleStatus(); }
     }
 
