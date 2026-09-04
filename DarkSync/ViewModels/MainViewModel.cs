@@ -80,6 +80,7 @@ public partial class MainViewModel : ObservableObject
     // ── Is Running ───────────────────────────────────────────────
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private bool _isSftpTestRunning;
+    private bool _syncCompletedSuccessfully;
 
     [RelayCommand]
     private void ToggleTheme()
@@ -390,6 +391,7 @@ public partial class MainViewModel : ObservableObject
     private async Task RunSyncAsync(bool dry = false, bool isScheduled = false)
     {
         if (IsRunning) return;
+        _syncCompletedSuccessfully = false;
 
         try
         {
@@ -430,6 +432,8 @@ public partial class MainViewModel : ObservableObject
                     {
                         Application.Current.Dispatcher.Invoke(() => StatusText = p.Item3);
                     })));
+
+            _syncCompletedSuccessfully = true;
 
             // Update VM table health
             foreach (var (vmid, h) in result.Health)
@@ -641,6 +645,9 @@ public partial class MainViewModel : ObservableObject
         var nowTime = new TimeOnly(now.Hour, now.Minute);
         var due = nowTime >= scheduled;
 
+        // Sync config from UI before checking schedule
+        _config = CollectConfig();
+
         if (_config.ScheduleLastRunDate == today) return;
         if (!due) return;
 
@@ -648,17 +655,14 @@ public partial class MainViewModel : ObservableObject
         try
         {
             StatusText = $"Starting scheduled {(ScheduleDryRun ? "Dry Run" : "Sync")}...";
-            var wasRunning = IsRunning;
             await RunSyncAsync(dry: ScheduleDryRun, isScheduled: true);
 
-            // Only mark as run if the operation actually executed
-            // (not if the user declined the confirmation dialog)
-            if (!wasRunning && !IsRunning)
+            // Mark as run ONLY if sync actually completed successfully
+            if (_syncCompletedSuccessfully)
             {
                 _config.ScheduleLastRunDate = today;
                 ConfigService.Save(_config);
             }
-            UpdateScheduleStatus();
         }
         catch (Exception ex)
         {
@@ -667,6 +671,7 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             _scheduleRunning = false;
+            UpdateScheduleStatus();
         }
     }
 
