@@ -392,16 +392,19 @@ public partial class MainViewModel : ObservableObject
     {
         if (IsRunning) return;
         _syncCompletedSuccessfully = false;
+        if (isScheduled) SchedulerLog($"RunSyncAsync entered. dry={dry}, sources={_config.Sources.Count}, dest='{_config.Destination}'");
 
         try
         {
             _config = CollectConfig();
             ConfigService.Save(_config);
+            if (isScheduled) SchedulerLog($"Validating archive. requireWrite={!dry}");
             SyncService.ValidateArchive(_config, requireWrite: !dry);
         }
         catch (DestinationUnavailableException ex)
         {
             StatusText = "Sync aborted: " + ex.Message;
+            SchedulerLog($"DestinationUnavailableException: {ex.Message}");
             HistoryService.Add(dry ? "Dry Run" : "Sync / Copy", "Aborted - destination unavailable", ex.Message);
             RefreshHistory();
             try { await NtfyService.SendAsync(_config, "DarkSync Sync Aborted", ex.Message, false); } catch { }
@@ -409,6 +412,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            SchedulerLog($"Validation exception: {ex.GetType().Name}: {ex.Message}");
             if (!isScheduled)
                 MessageBox.Show(ex.Message, "Invalid configuration", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
@@ -418,11 +422,10 @@ public partial class MainViewModel : ObservableObject
         if (!dry && !isScheduled &&
             MessageBox.Show($"Copy required backups now?\n\nOld-copy handling: {Retention}",
                 "Run sync", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
-            return;
-
-        IsRunning = true;
-        _syncCts = new CancellationTokenSource();
-        StatusText = "Scanning and planning...";
+            return;            IsRunning = true;
+            _syncCts = new CancellationTokenSource();
+            StatusText = "Scanning and planning...";
+            if (isScheduled) SchedulerLog($"Sync started. IsRunning={IsRunning}");
 
         try
         {
@@ -434,6 +437,7 @@ public partial class MainViewModel : ObservableObject
                     })));
 
             _syncCompletedSuccessfully = true;
+            if (isScheduled) SchedulerLog($"Sync returned successfully. Results={result.Results.Count}, Warnings={result.Warnings.Count}");
 
             // Update VM table health
             foreach (var (vmid, h) in result.Health)
@@ -629,7 +633,7 @@ public partial class MainViewModel : ObservableObject
 
     private void StartScheduler()
     {
-        _schedulerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _schedulerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _schedulerTimer.Tick += async (_, _) => await CheckScheduleAsync();
         _schedulerTimer.Start();
     }
@@ -638,7 +642,12 @@ public partial class MainViewModel : ObservableObject
     {
         if (_scheduleRunning || !ScheduleEnabled) return;
 
-        if (!TimeOnly.TryParse(ScheduleTime, out var scheduled)) return;
+        if (!System.Globalization.CultureInfo.InvariantCulture.Equals(null) == false) { }
+        var parsed = TimeOnly.TryParse(ScheduleTime,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var scheduled);
+        if (!parsed) return;
 
         var now = DateTime.Now;
         var today = now.Date.ToString("yyyy-MM-dd");
@@ -654,7 +663,8 @@ public partial class MainViewModel : ObservableObject
         _scheduleRunning = true;
         try
         {
-            StatusText = $"Starting scheduled {(ScheduleDryRun ? "Dry Run" : "Sync")}...";
+            StatusText = $"[Scheduler] Starting scheduled {(ScheduleDryRun ? "Dry Run" : "Sync")} at {now:HH:mm:ss}...";
+            SchedulerLog($"Triggered. Time={ScheduleTime}, DryRun={ScheduleDryRun}, LastRun={_config.ScheduleLastRunDate}");
             await RunSyncAsync(dry: ScheduleDryRun, isScheduled: true);
 
             // Mark as run ONLY if sync actually completed successfully
@@ -662,17 +672,35 @@ public partial class MainViewModel : ObservableObject
             {
                 _config.ScheduleLastRunDate = today;
                 ConfigService.Save(_config);
+                SchedulerLog($"Completed successfully. Marked as run for {today}.");
+            }
+            else
+            {
+                SchedulerLog($"Sync did not complete. _syncCompletedSuccessfully=false.");
             }
         }
         catch (Exception ex)
         {
             StatusText = $"Scheduled run failed: {ex.Message}";
+            SchedulerLog($"Exception: {ex.Message}");
         }
         finally
         {
             _scheduleRunning = false;
             UpdateScheduleStatus();
         }
+    }
+
+    private static void SchedulerLog(string message)
+    {
+        try
+        {
+            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkSync");
+            Directory.CreateDirectory(logDir);
+            var logPath = Path.Combine(logDir, "scheduler.log");
+            File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n");
+        }
+        catch { }
     }
 
     partial void OnScheduleEnabledChanged(bool value) => UpdateScheduleStatus();
