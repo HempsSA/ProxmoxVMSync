@@ -1,0 +1,375 @@
+﻿<Window x:Class="DarkSync.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:DarkSync.ViewModels"
+        xmlns:local="clr-namespace:DarkSync.Views"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        Title="DarkSync Proxmox Archive 2.0.0" Height="820" Width="1450"
+        WindowStartupLocation="CenterScreen" MinHeight="600" MinWidth="900"
+        Icon="pack://application:,,,/DarkSync;component/DarkSync_Proxmox_Archive.ico"
+        Background="{DynamicResource WindowBrush}"
+        Foreground="{DynamicResource ForegroundBrush}">
+
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Window.Resources>
+        <local:BoolToModeConverter x:Key="BoolToModeConverter"/>
+        <local:ImportanceToBrushConverter x:Key="ImportanceToBrushConverter"/>
+        <local:ImportanceToLabelConverter x:Key="ImportanceToLabelConverter"/>
+    </Window.Resources>
+
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TabControl Grid.Row="0" FontSize="13">
+
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <!--  TAB 1: Backup Archive                                 -->
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <TabItem Header="  Backup Archive  " FontSize="14">
+                <DockPanel Margin="4">
+                    <!-- Form Panel (top) -->
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Sources (Name|path):" VerticalAlignment="Top" Margin="0,6,8,0" FontWeight="SemiBold"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding SourcesText, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="90" VerticalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas" FontSize="12"
+                                 ToolTip="Format: Name|path (one per line)&#10;CB01|\\172.16.33.11\CB01_CB02Backups\dump&#10;PVE1|sftp://root@172.16.32.1:2222/mnt/pve/LocalBackups"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="External archive:" VerticalAlignment="Center" Margin="0,4,8,0" FontWeight="SemiBold"/>
+                        <Grid Grid.Row="1" Grid.Column="1" Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding Destination, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,4,0"/>
+                            <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseFolderCommand}" Padding="12,6"/>
+                        </Grid>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Archive ID:" VerticalAlignment="Center" Margin="0,4,8,0" FontWeight="SemiBold"/>
+                        <Grid Grid.Row="2" Grid.Column="1" Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding ArchiveId, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,4,0"/>
+                            <Button Grid.Column="1" Content="Initialize Archive" Command="{Binding InitializeArchiveCommand}" Padding="12,6"/>
+                        </Grid>
+                    </Grid>
+
+                    <!-- Buttons Row -->
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,4,0,8" VerticalAlignment="Center">
+                        <Button Content="Add VM IDs" Command="{Binding AddVmsCommand}"/>
+                        <Button Content="Remove Selected" Click="RemoveSelected_Click" Background="{DynamicResource AccentRed}" Foreground="White"/>
+                        <Button Content="Save" Command="{Binding SaveCommand}" Background="{DynamicResource AccentBlue}" Foreground="White"/>
+                        <Button Content="Export" Command="{Binding ExportSettingsCommand}" Background="{DynamicResource AccentGreen}" Foreground="White"/>
+                        <Button Content="Import" Command="{Binding ImportSettingsCommand}" Background="{DynamicResource AccentYellow}" Foreground="White"/>
+                        <Button Content="Test SFTP" Command="{Binding TestSftpCommand}"/>
+                        <Button Content="Dry Run" Command="{Binding DryRunCommand}" Background="{DynamicResource AccentYellow}" Foreground="White"/>
+                        <Button Content="Sync / Copy" Command="{Binding SyncCommand}" Background="{DynamicResource AccentGreen}" Foreground="White"/>
+                        <Button Content="Cancel" Command="{Binding CancelCommand}" Background="{DynamicResource AccentRed}" Foreground="White"/>
+                    </WrapPanel>
+
+                    <!-- VM Table -->
+                    <DataGrid x:Name="VmGrid" DockPanel.Dock="Top" ItemsSource="{Binding VmRows}" Margin="0,0,0,8"
+                              AutoGenerateColumns="False" IsReadOnly="False" CanUserAddRows="False"
+                              SelectionMode="Extended" RowHeaderWidth="0" GridLinesVisibility="Horizontal"
+                              FontSize="13" MinHeight="200">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Enabled" Binding="{Binding Enabled, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="VM ID" Binding="{Binding VmId}" Width="65" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="VM Name / Folder Note" Binding="{Binding Name, Mode=TwoWay}" Width="220">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="ToolTip" Value="Controls the destination folder name. Example: vm-212-CB01fileserver"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTemplateColumn Header="Importance" Width="150" IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Background="{Binding Importance, Converter={StaticResource ImportanceToBrushConverter}}"
+                                                BorderThickness="0" Cursor="Hand" Padding="0" Margin="2"
+                                                HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                Click="ImportanceBadge_Click">
+                                            <TextBlock Text="{Binding Importance, Converter={StaticResource ImportanceToLabelConverter}}"
+                                                       Foreground="White" FontWeight="SemiBold" FontSize="12"
+                                                       Padding="10,4" TextWrapping="NoWrap"/>
+                                        </Button>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Copies" Binding="{Binding Copies, Mode=TwoWay}" Width="65"/>
+                            <DataGridTextColumn Header="Max age (days)" Binding="{Binding MaxAge, Mode=TwoWay}" Width="100"/>
+                            <DataGridTextColumn Header="Source" Binding="{Binding SourceCount}" Width="65" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="External" Binding="{Binding ExternalCount}" Width="70" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Newest external" Binding="{Binding NewestExternal}" Width="130" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Health" Binding="{Binding HealthStatus}" Width="110" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Details" Binding="{Binding HealthDetails}" Width="*" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- Info Labels -->
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                        <TextBlock Text="File filter: only .zst files are scanned and copied; .log and .dat are excluded."
+                                   Foreground="{DynamicResource AccentYellow}" FontWeight="SemiBold" FontSize="12"/>
+                        <TextBlock Text="Folder naming: enter a VM Name / Folder Note. The folder will be vm-212-CB01fileserver."
+                                   Foreground="{DynamicResource AccentBlue}" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </DockPanel>
+            </TabItem>
+
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <!--  TAB 2: Archive Settings                               -->
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <TabItem Header="  Archive Settings  " FontSize="14">
+                <StackPanel Margin="16,12" MaxWidth="600" HorizontalAlignment="Left">
+                    <GroupBox Header="Archive Identity" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBox Text="{Binding ArchiveId, UpdateSourceTrigger=PropertyChanged}" Width="300" Margin="0,0,8,0"/>
+                                <Button Content="Initialize Archive" Command="{Binding InitializeArchiveCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Retention" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Old-copy handling:" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding RetentionOptions}" SelectedItem="{Binding Retention}" Width="250" HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Free Space" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Minimum free space reserve:" Margin="0,0,0,4"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBox Text="{Binding MinFreeGb, UpdateSourceTrigger=PropertyChanged}" Width="80" Margin="0,0,8,0"/>
+                                <TextBlock Text="GB" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <TextBlock Text="These settings control archive validation, retention of older backup copies, and the minimum free-space reserve."
+                               TextWrapping="Wrap" Foreground="{DynamicResource MutedForegroundBrush}" Margin="0,8,0,0"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <!--  TAB 3: SFTP Credentials                               -->
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <TabItem Header="  SFTP Credentials  " FontSize="14">
+                <StackPanel Margin="16,12" MaxWidth="600" HorizontalAlignment="Left">
+                    <GroupBox Header="SFTP Password" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <PasswordBox x:Name="PasswordBox" Width="350" HorizontalAlignment="Left"
+                                         PasswordChanged="PasswordBox_PasswordChanged"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Credential Storage" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <CheckBox Content="Remember SFTP password securely"
+                                      IsChecked="{Binding RememberSftp}" Margin="0,0,0,8"/>
+                            <Button Content="Forget Saved Password" Command="{Binding ForgetPasswordCommand}"
+                                    HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <TextBlock Text="The SFTP password is shared by all configured SFTP sources. When enabled, it is saved in the Windows Credential Manager."
+                               TextWrapping="Wrap" Foreground="{DynamicResource MutedForegroundBrush}"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <!--  TAB 4: 24-Hour Scheduler                              -->
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <TabItem Header="  24-Hour Scheduler  " FontSize="14">
+                <StackPanel Margin="16,12" MaxWidth="600" HorizontalAlignment="Left">
+                    <CheckBox Content="Run automatically once every 24-hour day"
+                              IsChecked="{Binding ScheduleEnabled}" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="Daily time (HH:mm):" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding ScheduleTime, UpdateSourceTrigger=PropertyChanged}" Width="100"
+                             HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="Scheduled action:" Margin="0,0,0,4"/>
+                    <ComboBox ItemsSource="{Binding ScheduleModes}"
+                              SelectedItem="{Binding ScheduleDryRun, Converter={StaticResource BoolToModeConverter}}"
+                              Width="200" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="{Binding ScheduleStatusText}" TextWrapping="Wrap" Margin="0,0,0,12"
+                               Foreground="{DynamicResource AccentBlue}" FontWeight="SemiBold"/>
+
+                    <Button Content="Run Scheduled Job Now" Command="{Binding TriggerScheduledNowCommand}"
+                            HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="The scheduler runs while DarkSync remains open. Closing the window minimizes to the system tray."
+                               TextWrapping="Wrap" Foreground="{DynamicResource MutedForegroundBrush}"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <!--  TAB 5: Notifications                                  -->
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <TabItem Header="  Notifications  " FontSize="14">
+                <StackPanel Margin="16,12" MaxWidth="600" HorizontalAlignment="Left">
+                    <CheckBox Content="Enable ntfy push notifications"
+                              IsChecked="{Binding NtfyEnabled}" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="ntfy server:" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding NtfyServer, UpdateSourceTrigger=PropertyChanged}" Width="350"
+                             HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                    <TextBlock Text="ntfy topic:" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding NtfyTopic, UpdateSourceTrigger=PropertyChanged}" Width="350"
+                             HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                    <TextBlock Text="ntfy access token:" Margin="0,0,0,4"/>
+                    <PasswordBox x:Name="NtfyTokenBox" Width="350" HorizontalAlignment="Left"
+                                 PasswordChanged="NtfyTokenBox_PasswordChanged" Margin="0,0,0,8"/>
+
+                    <TextBlock Text="Priority:" Margin="0,0,0,4"/>
+                    <ComboBox ItemsSource="{Binding NtfyPriorities}" SelectedItem="{Binding NtfyPriority}"
+                              Width="150" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                    <CheckBox Content="Notify after successful sync / copy" IsChecked="{Binding NtfyOnSuccess}" Margin="0,0,0,4"/>
+                    <CheckBox Content="Notify on scan, copy, or retention failure" IsChecked="{Binding NtfyOnFailure}" Margin="0,0,0,12"/>
+
+                    <Button Content="Send Test Notification" Command="{Binding TestNtfyCommand}"
+                            HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="The topic is effectively a secret when using public ntfy.sh. Use a long, difficult-to-guess topic name or configure an access token."
+                               TextWrapping="Wrap" Foreground="{DynamicResource MutedForegroundBrush}"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <!--  TAB 6: History                                        -->
+            <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+            <TabItem Header="  History  " FontSize="14">
+                <DockPanel Margin="4">
+                    <!-- Controls -->
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" x:Name="HistorySearchBox" Margin="0,0,10,0"
+                                 Text="{Binding HistoryFilter, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Filter by timestamp, operation, result, or VM details"/>
+                        <TextBlock Grid.Column="1" Text="Filter:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,6,0" Visibility="Collapsed"/>
+                        <Button Grid.Column="2" Content="Refresh" Command="{Binding RefreshHistoryCommand}"/>
+                        <Button Grid.Column="3" Content="Clear History" Command="{Binding ClearHistoryCommand}"
+                                Background="{DynamicResource AccentRed}" Foreground="White"/>
+                    </Grid>
+
+                    <!-- Summary -->
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding HistorySummary}" FontWeight="SemiBold" Margin="0,0,0,6"
+                               Foreground="{DynamicResource MutedForegroundBrush}"/>
+
+                    <!-- History Table -->
+                    <DataGrid DockPanel.Dock="Top" ItemsSource="{Binding HistoryRows}" Margin="0,0,0,8"
+                              SelectionChanged="HistoryTable_SelectionChanged" MinHeight="130">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ResultBadge}" Value="Good">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthGood}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ResultBadge}" Value="Warning">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthWarning}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ResultBadge}" Value="Bad">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthBad}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="140" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Operation" Binding="{Binding Operation}" Width="105" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="170" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Actions" Binding="{Binding Actions}" Width="60" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Source" Binding="{Binding SourceCount}" Width="60" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="External" Binding="{Binding ExternalCount}" Width="70" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Warnings" Binding="{Binding Warnings}" Width="65" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="*" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Age" Binding="{Binding Age}" Width="65" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- VM Health Sub-Table -->
+                    <TextBlock DockPanel.Dock="Top" Text="VM Health Snapshot (select a history row above)" FontWeight="SemiBold" Margin="0,2,0,4"
+                               Foreground="{DynamicResource MutedForegroundBrush}"/>
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                        <Border Height="1" Background="{DynamicResource BorderBrush}"/>
+                    </Grid>
+                    <DataGrid ItemsSource="{Binding HistoryVmRows}" MinHeight="110">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Health}" Value="HEALTHY">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthGood}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Health}" Value="STALE">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthWarning}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Health}" Value="UNDER-RETAINED">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthWarning}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Health}" Value="MISSING">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthBad}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Health}" Value="CRITICAL">
+                                        <Setter Property="Foreground" Value="{DynamicResource HealthBad}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="VM ID" Binding="{Binding VmId}" Width="60" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="150" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Importance" Binding="{Binding Importance}" Width="75" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Required" Binding="{Binding RequiredCopies}" Width="75" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Source" Binding="{Binding SourceCopies}" Width="60" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="External" Binding="{Binding ExternalCopies}" Width="70" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Newest" Binding="{Binding NewestExternal}" Width="130" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Health" Binding="{Binding Health}" Width="110" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="*" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="1" Background="{DynamicResource StatusBarBrush}" Padding="12,4" Margin="0,4,0,0" CornerRadius="4"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="{Binding ThemeToggleLabel}" Command="{Binding ToggleThemeCommand}"
+                        Padding="10,3" Margin="6,0,0,0" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
+
