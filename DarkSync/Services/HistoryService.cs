@@ -6,7 +6,31 @@ namespace DarkSync.Services;
 
 public static class HistoryService
 {
-    private static string DbPath => Path.Combine(AppContext.BaseDirectory, "darksync_history.db");
+    private const string DbFileName = "darksync_history.db";
+
+    private static string DbPath
+    {
+        get
+        {
+            var dir = ConfigService.AppDataDir;
+            var canonical = Path.Combine(dir, DbFileName);
+            try
+            {
+                // One-time migration from the legacy exe-adjacent location.
+                if (!File.Exists(canonical))
+                {
+                    var legacy = Path.Combine(AppContext.BaseDirectory, DbFileName);
+                    if (!string.Equals(legacy, canonical, StringComparison.OrdinalIgnoreCase) && File.Exists(legacy))
+                    {
+                        Directory.CreateDirectory(dir);
+                        File.Copy(legacy, canonical, overwrite: false);
+                    }
+                }
+            }
+            catch { }
+            return canonical;
+        }
+    }
 
     public static void Initialize()
     {

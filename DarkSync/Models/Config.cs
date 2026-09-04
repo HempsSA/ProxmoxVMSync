@@ -57,4 +57,16 @@ public class Config
 
     [JsonPropertyName("schedule_last_run_date")]
     public string ScheduleLastRunDate { get; set; } = "";
+
+    [JsonPropertyName("schedule_last_attempt")]
+    public string ScheduleLastAttempt { get; set; } = "";
+
+    [JsonPropertyName("schedule_consecutive_failures")]
+    public int ScheduleConsecutiveFailures { get; set; }
+
+    [JsonPropertyName("schedule_last_result")]
+    public string ScheduleLastResult { get; set; } = "";
+
+    [JsonPropertyName("schedule_last_abort_notify_date")]
+    public string ScheduleLastAbortNotifyDate { get; set; } = "";
 }

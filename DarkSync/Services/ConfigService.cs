@@ -12,15 +12,42 @@ public static class ConfigService
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    private static string GetConfigPath()
+    private const string ConfigFileName = "darksync_proxmox.json";
+
+    public static string AppDataDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkSync");
+
+    /// <summary>
+    /// Canonical config location. Previously the JSON lived next to the exe, which meant
+    /// dev and published copies each had their own diverging settings file.
+    /// </summary>
+    public static string ConfigPath => Path.Combine(AppDataDir, ConfigFileName);
+
+    private static string LegacyConfigPath()
     {
-        var baseDir = AppContext.BaseDirectory;
-        return Path.Combine(baseDir, "darksync_proxmox.json");
+        try { return Path.Combine(AppContext.BaseDirectory, ConfigFileName); }
+        catch { return ConfigFileName; }
     }
 
     public static Config Load()
     {
-        var path = GetConfigPath();
+        var path = ConfigPath;
+
+        // One-time migration from the legacy exe-adjacent location.
+        try
+        {
+            if (!File.Exists(path))
+            {
+                var legacy = LegacyConfigPath();
+                if (!string.Equals(legacy, path, StringComparison.OrdinalIgnoreCase) && File.Exists(legacy))
+                {
+                    Directory.CreateDirectory(AppDataDir);
+                    File.Copy(legacy, path, overwrite: false);
+                }
+            }
+        }
+        catch { }
+
         if (!File.Exists(path))
             return new Config();
 
@@ -28,80 +55,161 @@ public static class ConfigService
         {
             var json = File.ReadAllText(path);
             var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            return ParseConfig(root);
+            return ParseConfig(doc.RootElement);
         }
         catch
         {
+            // A corrupt file must never silently reset the user to a blank config
+            // without a trace: back it up so settings can be recovered.
+            try
+            {
+                Directory.CreateDirectory(AppDataDir);
+                File.Copy(path, path + $".corrupt_{DateTime.Now:yyyyMMdd_HHmmss}.bak", overwrite: false);
+            }
+            catch { }
             return new Config();
         }
+    }
+
+    private static string GetString(JsonElement d, string name, string @default = "")
+    {
+        try
+        {
+            if (d.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.String)
+                return e.GetString() ?? @default;
+        }
+        catch { }
+        return @default;
+    }
+
+    private static int GetInt(JsonElement d, string name, int @default)
+    {
+        try
+        {
+            if (!d.TryGetProperty(name, out var e)) return @default;
+            if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var n)) return n;
+            if (e.ValueKind == JsonValueKind.String && int.TryParse(e.GetString(), out var s)) return s;
+        }
+        catch { }
+        return @default;
+    }
+
+    private static int GetInt(JsonElement d, string name1, string name2, int @default)
+    {
+        if (d.TryGetProperty(name1, out _) || d.TryGetProperty(name2, out _))
+        {
+            var v1 = GetInt(d, name1, int.MinValue);
+            if (v1 != int.MinValue) return v1;
+            return GetInt(d, name2, @default);
+        }
+        return @default;
+    }
+
+    private static bool GetBool(JsonElement d, string name, bool @default)
+    {
+        try
+        {
+            if (!d.TryGetProperty(name, out var e)) return @default;
+            return e.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Number => e.GetInt32() != 0,
+                JsonValueKind.String => bool.TryParse(e.GetString(), out var b) ? b : @default,
+                _ => @default,
+            };
+        }
+        catch { return @default; }
     }
 
     private static Config ParseConfig(JsonElement d)
     {
         var c = new Config();
 
-        if (d.TryGetProperty("sources", out var srcArr))
+        if (d.TryGetProperty("sources", out var srcArr) && srcArr.ValueKind == JsonValueKind.Array)
         {
             foreach (var s in srcArr.EnumerateArray())
             {
-                c.Sources.Add(new Source
+                try
                 {
-                    Name = s.TryGetProperty("name", out var n) ? n.GetString() ?? "PVE" : "PVE",
-                    Path = s.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "",
-                    Enabled = s.TryGetProperty("enabled", out var e) && e.GetBoolean(),
-                    KeyFile = s.TryGetProperty("key_file", out var kf) ? kf.GetString() ?? "" : ""
-                });
+                    c.Sources.Add(new Source
+                    {
+                        Name = GetString(s, "name", "PVE"),
+                        Path = GetString(s, "path"),
+                        // Missing flag means enabled (old files predate the flag).
+                        Enabled = GetBool(s, "enabled", true),
+                        KeyFile = GetString(s, "key_file")
+                    });
+                }
+                catch { }
             }
         }
 
-        c.Destination = d.TryGetProperty("destination", out var dest) ? dest.GetString() ?? "" : "";
-        c.ArchiveId = d.TryGetProperty("archive_id", out var aid)
-            ? aid.GetString() ?? ""
-            : d.TryGetProperty("expected_archive_id", out var eaid) ? eaid.GetString() ?? "" : "";
+        c.Destination = GetString(d, "destination");
+        c.ArchiveId = GetString(d, "archive_id");
+        if (string.IsNullOrEmpty(c.ArchiveId))
+            c.ArchiveId = GetString(d, "expected_archive_id");
 
-        if (d.TryGetProperty("vms", out var vmArr) || d.TryGetProperty("protected_vms", out vmArr))
+        JsonElement vmArr = default;
+        var hasVms = false;
+        if (d.TryGetProperty("vms", out var v1) && v1.ValueKind == JsonValueKind.Array) { vmArr = v1; hasVms = true; }
+        else if (d.TryGetProperty("protected_vms", out var v2) && v2.ValueKind == JsonValueKind.Array) { vmArr = v2; hasVms = true; }
+
+        if (hasVms)
         {
             foreach (var v in vmArr.EnumerateArray())
             {
-                var vm = new VmPolicy();
-                if (v.TryGetProperty("vmid", out var vid)) vm.VmId = vid.GetInt32();
-                if (v.TryGetProperty("name", out var vname)) vm.Name = vname.GetString() ?? "";
-                if (v.TryGetProperty("enabled", out var ven)) vm.Enabled = ven.GetBoolean();
-                if (v.TryGetProperty("importance", out var vi)) vm.Importance = vi.GetInt32();
-                if (v.TryGetProperty("copies", out var vc)) vm.Copies = vc.GetInt32();
-                else if (v.TryGetProperty("required_copies", out var rc)) vm.Copies = rc.GetInt32();
-                if (v.TryGetProperty("max_age", out var ma)) vm.MaxAge = ma.GetInt32();
-                else if (v.TryGetProperty("maximum_age_days", out var mad)) vm.MaxAge = mad.GetInt32();
-                c.Vms.Add(vm);
+                try
+                {
+                    var vm = new VmPolicy
+                    {
+                        Enabled = GetBool(v, "enabled", true)
+                    };
+                    if (v.TryGetProperty("vmid", out var vid) && vid.ValueKind == JsonValueKind.Number && vid.TryGetInt32(out var id))
+                        vm.VmId = id;
+                    vm.Name = GetString(v, "name");
+                    vm.Importance = GetInt(v, "importance", 1);
+                    vm.Copies = GetInt(v, "copies", "required_copies", 1);
+                    vm.MaxAge = GetInt(v, "max_age", "maximum_age_days", 7);
+                    c.Vms.Add(vm);
+                }
+                catch { }
             }
         }
 
-        c.MinFreeGb = d.TryGetProperty("min_free_gb", out var mfg) ? mfg.GetInt32()
-            : d.TryGetProperty("minimum_free_gb", out var mfg2) ? mfg2.GetInt32() : 5;
-        c.Retention = d.TryGetProperty("retention", out var ret) ? ret.GetString() ?? "Keep all" : "Keep all";
-        c.RecycleDays = d.TryGetProperty("recycle_days", out var rd) ? rd.GetInt32() : 7;
-        c.NtfyEnabled = d.TryGetProperty("ntfy_enabled", out var ne) && ne.GetBoolean();
-        c.NtfyServer = d.TryGetProperty("ntfy_server", out var ns) ? ns.GetString() ?? "https://ntfy.sh" : "https://ntfy.sh";
-        c.NtfyTopic = d.TryGetProperty("ntfy_topic", out var nt) ? nt.GetString() ?? "" : "";
-        c.NtfyToken = d.TryGetProperty("ntfy_token", out var nk) ? nk.GetString() ?? "" : "";
-        c.NtfyPriority = d.TryGetProperty("ntfy_priority", out var np) ? np.GetString() ?? "high" : "high";
-        c.NtfyOnSuccess = !d.TryGetProperty("ntfy_on_success", out var nos) || nos.GetBoolean();
-        c.NtfyOnFailure = !d.TryGetProperty("ntfy_on_failure", out var nof) || nof.GetBoolean();
-        c.ScheduleEnabled = d.TryGetProperty("schedule_enabled", out var se) && se.GetBoolean();
-        c.ScheduleTime = d.TryGetProperty("schedule_time", out var st) ? st.GetString() ?? "02:00" : "02:00";
-        c.ScheduleDryRun = d.TryGetProperty("schedule_dry_run", out var sdr) && sdr.GetBoolean();
-        c.ScheduleLastRunDate = d.TryGetProperty("schedule_last_run_date", out var slr) ? slr.GetString() ?? "" : "";
+        c.MinFreeGb = GetInt(d, "min_free_gb", "minimum_free_gb", 5);
+        var retention = GetString(d, "retention", "Keep all");
+        c.Retention = string.IsNullOrEmpty(retention) ? "Keep all" : retention;
+        c.RecycleDays = GetInt(d, "recycle_days", 7);
+        c.NtfyEnabled = GetBool(d, "ntfy_enabled", false);
+        c.NtfyServer = GetString(d, "ntfy_server", "https://ntfy.sh");
+        if (string.IsNullOrEmpty(c.NtfyServer)) c.NtfyServer = "https://ntfy.sh";
+        c.NtfyTopic = GetString(d, "ntfy_topic");
+        c.NtfyToken = GetString(d, "ntfy_token");
+        c.NtfyPriority = GetString(d, "ntfy_priority", "high");
+        if (string.IsNullOrEmpty(c.NtfyPriority)) c.NtfyPriority = "high";
+        c.NtfyOnSuccess = GetBool(d, "ntfy_on_success", true);
+        c.NtfyOnFailure = GetBool(d, "ntfy_on_failure", true);
+        c.ScheduleEnabled = GetBool(d, "schedule_enabled", false);
+        c.ScheduleTime = GetString(d, "schedule_time", "02:00");
+        if (string.IsNullOrEmpty(c.ScheduleTime)) c.ScheduleTime = "02:00";
+        c.ScheduleDryRun = GetBool(d, "schedule_dry_run", false);
+        c.ScheduleLastRunDate = GetString(d, "schedule_last_run_date");
+        c.ScheduleLastAttempt = GetString(d, "schedule_last_attempt");
+        c.ScheduleConsecutiveFailures = GetInt(d, "schedule_consecutive_failures", 0);
+        c.ScheduleLastResult = GetString(d, "schedule_last_result");
+        c.ScheduleLastAbortNotifyDate = GetString(d, "schedule_last_abort_notify_date");
 
         return c;
     }
 
     public static void Save(Config c)
     {
-        var path = GetConfigPath();
+        var path = ConfigPath;
         var tmp = path + ".tmp";
         try
         {
+            Directory.CreateDirectory(AppDataDir);
             var json = JsonSerializer.Serialize(c, JsonOpts);
             File.WriteAllText(tmp, json);
             File.Move(tmp, path, overwrite: true);
