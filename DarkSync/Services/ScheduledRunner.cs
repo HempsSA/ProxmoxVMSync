@@ -13,7 +13,10 @@ public static class ScheduledRunner
     public static bool IsHeadlessArgs(string[] args) =>
         args.Any(a => a.Equals("--run-scheduled", StringComparison.OrdinalIgnoreCase)
                    || a.Equals("--scheduled", StringComparison.OrdinalIgnoreCase)
-                   || a.Equals("/scheduled", StringComparison.OrdinalIgnoreCase));
+                   || a.Equals("/scheduled", StringComparison.OrdinalIgnoreCase)
+                   || a.Equals("--register-task", StringComparison.OrdinalIgnoreCase)
+                   || a.Equals("--unregister-task", StringComparison.OrdinalIgnoreCase)
+                   || a.Equals("--task-status", StringComparison.OrdinalIgnoreCase));
 
     public static async Task<int> RunAsync(string[] args)
     {

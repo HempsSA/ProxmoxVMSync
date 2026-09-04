@@ -219,7 +219,21 @@
                     <Button Content="Run Scheduled Job Now" Command="{Binding TriggerScheduledNowCommand}"
                             HorizontalAlignment="Left" Margin="0,0,0,12"/>
 
-                    <TextBlock Text="The scheduler runs while DarkSync remains open. Closing the window minimizes to the system tray."
+                    <GroupBox Header="Windows Task Scheduler (recommended)" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{Binding OsTaskStatusText}" TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Foreground="{DynamicResource AccentGreen}" FontWeight="SemiBold"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Install / Update Windows Task" Command="{Binding InstallOsTaskCommand}"
+                                        Margin="0,0,8,0"/>
+                                <Button Content="Remove Windows Task" Command="{Binding RemoveOsTaskCommand}"/>
+                            </StackPanel>
+                            <TextBlock Text="Runs daily at the time above even when the app is closed (wakes the PC if asleep). Uses the same action (Sync / Dry Run). Changing the time or action updates the task automatically."
+                                       TextWrapping="Wrap" Foreground="{DynamicResource MutedForegroundBrush}" Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <TextBlock Text="Without the Windows task, the in-app scheduler only runs while DarkSync remains open. Closing the window minimizes to the system tray (scheduler stays active); exiting stops it."
                                TextWrapping="Wrap" Foreground="{DynamicResource MutedForegroundBrush}"/>
                 </StackPanel>
             </TabItem>

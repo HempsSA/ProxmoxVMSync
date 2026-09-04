@@ -44,7 +44,30 @@ public partial class App : System.Windows.Application
         int code;
         try
         {
-            code = await Task.Run(() => ScheduledRunner.RunAsync(args));
+            if (args.Any(a => a.Equals("--register-task", StringComparison.OrdinalIgnoreCase)))
+                code = await Task.Run(async () =>
+                {
+                    var cfg = ConfigService.Load();
+                    var (ok, msg) = await ScheduledTaskService.RegisterAsync(cfg.ScheduleTime, cfg.ScheduleDryRun);
+                    SchedulerLog.Write("Task registration: " + msg);
+                    return ok ? 0 : 1;
+                });
+            else if (args.Any(a => a.Equals("--unregister-task", StringComparison.OrdinalIgnoreCase)))
+                code = await Task.Run(async () =>
+                {
+                    var (ok, msg) = await ScheduledTaskService.UnregisterAsync();
+                    SchedulerLog.Write("Task removal: " + msg);
+                    return ok ? 0 : 1;
+                });
+            else if (args.Any(a => a.Equals("--task-status", StringComparison.OrdinalIgnoreCase)))
+                code = await Task.Run(async () =>
+                {
+                    var (installed, details) = await ScheduledTaskService.GetStatusAsync();
+                    SchedulerLog.Write("Task status: " + details);
+                    return installed ? 0 : 1;
+                });
+            else
+                code = await Task.Run(() => ScheduledRunner.RunAsync(args));
         }
         catch (Exception ex)
         {
