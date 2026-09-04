@@ -10,7 +10,9 @@ public static class UpdateService
 {
     private const string RepoOwner = "HempsSA";
     private const string RepoName = "ProxmoxVMSync";
-    private const string Branch = "main";
+
+    // Bump this whenever you publish a release — it's compared against GitHub release tags
+    public const string CurrentVersion = "2.0.0";
 
     private static readonly HttpClient Http = new()
     {
@@ -27,86 +29,105 @@ public static class UpdateService
         Path.Combine(Path.GetTempPath(), "DarkSync_Update");
 
     /// <summary>
-    /// Checks GitHub for the latest commit on main.
-    /// Returns (hasUpdate, commitSha, commitMessage).
+    /// Checks GitHub Releases for a newer version.
+    /// Returns (hasUpdate, versionTag, releaseName).
     /// </summary>
-    public static async Task<(bool HasUpdate, string Sha, string Message)> CheckForUpdateAsync()
+    public static async Task<(bool HasUpdate, string Version, string Message)> CheckForUpdateAsync()
     {
         try
         {
-            var url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/commits/{Branch}";
+            var url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
             var response = await Http.GetStringAsync(url);
             using var doc = JsonDocument.Parse(response);
 
-            var sha = doc.RootElement.GetProperty("sha").GetString()?[..7] ?? "";
-            var msg = doc.RootElement.GetProperty("commit")
-                .GetProperty("message").GetString() ?? "";
+            var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
+            var name = doc.RootElement.GetProperty("name").GetString() ?? tag;
 
-            // Get current local commit
-            var localSha = GetLocalCommitSha();
+            // Compare versions (e.g. "2.0.0" vs "2.1.0")
+            if (Version.TryParse(CurrentVersion, out var current) &&
+                Version.TryParse(tag.TrimStart('v', 'V'), out var latest) &&
+                latest > current)
+            {
+                return (true, tag, name);
+            }
 
-            if (string.IsNullOrEmpty(localSha))
-                return (true, sha, msg); // Can't determine local version, assume update needed
-
-            return (localSha != sha, sha, msg);
+            return (false, tag, "You are running the latest version.");
         }
         catch
         {
-            return (false, "", "Unable to check for updates");
+            return (false, "", "Unable to check for updates.");
         }
     }
 
     /// <summary>
-    /// Downloads the latest source, builds it, creates an updater script,
-    /// and prepares for restart. Returns a status message.
+    /// Downloads the release zip, extracts it, creates an updater script,
+    /// and prepares for restart. Returns "OK" on success.
     /// </summary>
-    public static async Task<string> DownloadAndBuildAsync(IProgress<string>? progress = null)
+    public static async Task<string> DownloadAndUpdateAsync(IProgress<string>? progress = null)
     {
         try
         {
-            progress?.Report("Downloading latest source from GitHub...");
+            progress?.Report("Checking for latest release...");
+
+            // Get latest release info
+            var url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
+            var response = await Http.GetStringAsync(url);
+            using var doc = JsonDocument.Parse(response);
+
+            var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
+            var assets = doc.RootElement.GetProperty("assets");
+
+            // Find the zip asset
+            string? zipUrl = null;
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? "";
+                if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    zipUrl = asset.GetProperty("browser_download_url").GetString();
+                    break;
+                }
+            }
+
+            if (zipUrl == null)
+                return "No zip asset found in the latest release. Publish a release with a .zip file attached.";
 
             // Clean temp dir
             if (Directory.Exists(TempDir))
                 Directory.Delete(TempDir, true);
             Directory.CreateDirectory(TempDir);
 
-            // Download source zip
-            var zipPath = Path.Combine(TempDir, "source.zip");
-            var zipUrl = $"https://github.com/{RepoOwner}/{RepoName}/archive/refs/heads/{Branch}.zip";
+            progress?.Report($"Downloading {tag}...");
+            var zipPath = Path.Combine(TempDir, "update.zip");
 
-            using (var response = await Http.GetAsync(zipUrl))
+            using (var httpResponse = await Http.GetAsync(zipUrl))
             {
-                response.EnsureSuccessStatusCode();
+                httpResponse.EnsureSuccessStatusCode();
                 await using var fs = File.Create(zipPath);
-                await response.Content.CopyToAsync(fs);
+                await httpResponse.Content.CopyToAsync(fs);
             }
 
-            progress?.Report("Extracting source...");
-            ZipFile.ExtractToDirectory(zipPath, TempDir);
+            progress?.Report("Extracting update...");
+            var extractDir = Path.Combine(TempDir, "extracted");
+            ZipFile.ExtractToDirectory(zipPath, extractDir);
 
-            // Find the extracted folder (name pattern: RepoName-Branch)
-            var extractedDir = Directory.GetDirectories(TempDir)
-                .FirstOrDefault(d => Path.GetFileName(d).StartsWith(RepoName, StringComparison.OrdinalIgnoreCase));
+            // The zip may contain a top-level folder — find the one with DarkSync.exe
+            var buildDir = extractDir;
+            var exeInRoot = Path.Combine(extractDir, "DarkSync.exe");
+            if (!File.Exists(exeInRoot))
+            {
+                var subDir = Directory.GetDirectories(extractDir).FirstOrDefault();
+                if (subDir != null && File.Exists(Path.Combine(subDir, "DarkSync.exe")))
+                    buildDir = subDir;
+                else
+                    return "Could not find DarkSync.exe in the downloaded zip.";
+            }
 
-            if (extractedDir == null)
-                return "Failed to find extracted source directory";
+            progress?.Report("Preparing updater...");
 
-            progress?.Report("Building update...");
-            var buildDir = Path.Combine(TempDir, "build");
-
-            var buildResult = await RunProcessAsync("dotnet",
-                $"build \"{extractedDir}\" -c Release -o \"{buildDir}\" --nologo -v q");
-
-            if (buildResult.ExitCode != 0)
-                return $"Build failed:\n{buildResult.Output}";
-
-            progress?.Report("Creating updater script...");
-
-            // Get paths
+            // Get current app paths
             var currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
             var currentDir = Path.GetDirectoryName(currentExe) ?? AppContext.BaseDirectory;
-            var newExe = Path.Combine(buildDir, "DarkSync.exe");
 
             // Create updater batch script
             var bat = $"""
@@ -119,7 +140,7 @@ public static class UpdateService
 
             File.WriteAllText(UpdaterBatPath, bat);
 
-            progress?.Report("Update ready!");
+            progress?.Report("Update ready! Restarting...");
             return "OK";
         }
         catch (Exception ex)
@@ -147,66 +168,5 @@ public static class UpdateService
         {
             System.Windows.Application.Current.Shutdown();
         });
-    }
-
-    private static string? GetLocalCommitSha()
-    {
-        try
-        {
-            var gitDir = FindGitRoot(AppContext.BaseDirectory);
-            if (gitDir == null) return null;
-
-            var headFile = Path.Combine(gitDir, "HEAD");
-            if (!File.Exists(headFile)) return null;
-
-            var head = File.ReadAllText(headFile).Trim();
-            if (head.StartsWith("ref: "))
-            {
-                var refPath = Path.Combine(gitDir, head[5..]);
-                if (File.Exists(refPath))
-                    return File.ReadAllText(refPath).Trim()[..7];
-            }
-
-            return head[..7];
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string? FindGitRoot(string startDir)
-    {
-        var dir = new DirectoryInfo(startDir);
-        while (dir != null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, ".git")))
-                return Path.Combine(dir.FullName, ".git");
-            dir = dir.Parent;
-        }
-        return null;
-    }
-
-    private static async Task<(int ExitCode, string Output)> RunProcessAsync(string fileName, string arguments)
-    {
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-        var output = await process.StandardOutput.ReadToEndAsync();
-        var error = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        return (process.ExitCode, output + "\n" + error);
     }
 }

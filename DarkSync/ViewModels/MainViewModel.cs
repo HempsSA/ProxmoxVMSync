@@ -354,11 +354,11 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand] private async Task UpdateAppAsync()
     {
         if (IsRunning) return; StatusText = "Checking for updates...";
-        var (hasUpdate, sha, msg) = await UpdateService.CheckForUpdateAsync();
-        if (!hasUpdate) { StatusText = "App is up to date."; MessageBox.Show("You are running the latest version.", "No updates", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        if (MessageBox.Show($"Update available!\n\n{sha} - {msg.Trim()[..Math.Min(100, msg.Trim().Length)]}\n\nDownload and install?", "Update available", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes) return;
+        var (hasUpdate, version, msg) = await UpdateService.CheckForUpdateAsync();
+        if (!hasUpdate) { StatusText = "App is up to date."; MessageBox.Show($"You are running version {UpdateService.CurrentVersion}.", "No updates", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        if (MessageBox.Show($"Update available: {version}\n\n{msg}\n\nDownload and restart?", "Update available", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes) return;
         IsRunning = true;
-        try { var status = await UpdateService.DownloadAndBuildAsync(new Progress<string>(m => StatusText = m)); if (status == "OK") { StatusText = "Restarting..."; UpdateService.LaunchUpdaterAndExit(); } else { StatusText = "Update failed"; MessageBox.Show(status, "Update failed", MessageBoxButton.OK, MessageBoxImage.Error); } }
+        try { var status = await UpdateService.DownloadAndUpdateAsync(new Progress<string>(m => StatusText = m)); if (status == "OK") { StatusText = "Restarting..."; UpdateService.LaunchUpdaterAndExit(); } else { StatusText = "Update failed"; MessageBox.Show(status, "Update failed", MessageBoxButton.OK, MessageBoxImage.Error); } }
         catch (Exception ex) { StatusText = "Update failed"; MessageBox.Show(ex.Message, "Update failed", MessageBoxButton.OK, MessageBoxImage.Error); }
         finally { IsRunning = false; }
     }
