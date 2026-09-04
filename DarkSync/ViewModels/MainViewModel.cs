@@ -140,7 +140,20 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand] private void Save()
     {
-        try { _config = CollectConfig(); ConfigService.Save(_config); SavePassword(); StatusText = "Configuration saved"; UpdateScheduleStatus(); }
+        try
+        {
+            var oldTime = _config.ScheduleTime;
+            var oldEnabled = _config.ScheduleEnabled;
+            var oldDryRun = _config.ScheduleDryRun;
+            _config = CollectConfig();
+            // Reset last-run date when schedule settings change so it can re-trigger
+            if (_config.ScheduleTime != oldTime || _config.ScheduleEnabled != oldEnabled || _config.ScheduleDryRun != oldDryRun)
+            {
+                _config.ScheduleLastRunDate = "";
+                LogScheduler($"Schedule settings changed (time={_config.ScheduleTime}, enabled={_config.ScheduleEnabled}). Reset lastRunDate.");
+            }
+            ConfigService.Save(_config); SavePassword(); StatusText = "Configuration saved"; UpdateScheduleStatus();
+        }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
 
