@@ -721,6 +721,56 @@ public partial class MainViewModel : ObservableObject
     {
         await RunSyncAsync(ScheduleDryRun);
     }
+
+    [RelayCommand]
+    private async Task UpdateAppAsync()
+    {
+        if (IsRunning) return;
+
+        StatusText = "Checking for updates...";
+        var (hasUpdate, sha, msg) = await UpdateService.CheckForUpdateAsync();
+
+        if (!hasUpdate)
+        {
+            StatusText = "App is up to date.";
+            MessageBox.Show("You are running the latest version.", "No updates",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Update available!\n\nLatest: {sha} - {msg.Trim()[..Math.Min(100, msg.Trim().Length)]}\n\nDownload and install update?\nThe app will restart automatically.",
+            "Update available", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        IsRunning = true;
+        try
+        {
+            var status = await UpdateService.DownloadAndBuildAsync(
+                new Progress<string>(m => StatusText = m));
+
+            if (status == "OK")
+            {
+                StatusText = "Restarting with update...";
+                UpdateService.LaunchUpdaterAndExit();
+            }
+            else
+            {
+                StatusText = "Update failed";
+                MessageBox.Show(status, "Update failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Update failed";
+            MessageBox.Show(ex.Message, "Update failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsRunning = false;
+        }
+    }
 }
 
 // ── Row Models ──────────────────────────────────────────────────

@@ -367,6 +367,9 @@
             <DockPanel>
                 <Button DockPanel.Dock="Right" Content="{Binding ThemeToggleLabel}" Command="{Binding ToggleThemeCommand}"
                         Padding="10,3" Margin="6,0,0,0" FontWeight="SemiBold"/>
+                <Button DockPanel.Dock="Right" Content="⬇ Update" Command="{Binding UpdateAppCommand}"
+                        Padding="10,3" Margin="6,0,0,0" FontWeight="SemiBold"
+                        Background="{DynamicResource AccentGreen}" Foreground="White"/>
                 <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
             </DockPanel>
         </Border>
