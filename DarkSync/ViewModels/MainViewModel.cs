@@ -148,10 +148,7 @@ public partial class MainViewModel : ObservableObject
             _config = CollectConfig();
             // Reset last-run date when schedule settings change so it can re-trigger
             if (_config.ScheduleTime != oldTime || _config.ScheduleEnabled != oldEnabled || _config.ScheduleDryRun != oldDryRun)
-            {
                 _config.ScheduleLastRunDate = "";
-                LogScheduler($"Schedule settings changed (time={_config.ScheduleTime}, enabled={_config.ScheduleEnabled}). Reset lastRunDate.");
-            }
             ConfigService.Save(_config); SavePassword(); StatusText = "Configuration saved"; UpdateScheduleStatus();
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error); }
@@ -257,21 +254,19 @@ public partial class MainViewModel : ObservableObject
         try { _config = CollectConfig(); ConfigService.Save(_config); SyncService.ValidateArchive(_config, requireWrite: !dry); }
         catch (DestinationUnavailableException ex) { StatusText = "Sync aborted: " + ex.Message; HistoryService.Add(dry ? "Dry Run" : "Sync / Copy", "Aborted", ex.Message); RefreshHistory(); try { await NtfyService.SendAsync(_config, "DarkSync Sync Aborted", ex.Message, false); } catch { } if (isScheduled) LogScheduler($"Aborted: {ex.Message}"); return; }
         catch (Exception ex) { if (!isScheduled) MessageBox.Show(ex.Message, "Invalid configuration", MessageBoxButton.OK, MessageBoxImage.Error); else LogScheduler($"Validation error: {ex.Message}"); return; }
-        if (!dry && !isScheduled && MessageBox.Show($"Copy required backups now?\n\nOld-copy handling: {Retention}", "Run sync", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        IsRunning = true; _syncCts = new CancellationTokenSource(); StatusText = "Scanning and planning..."; if (isScheduled) LogScheduler("Sync started");
+        if (!dry && !isScheduled && MessageBox.Show($"Copy required backups now?\n\nOld-copy handling: {Retention}", "Run sync", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;            IsRunning = true; _syncCts = new CancellationTokenSource(); StatusText = "Scanning and planning...";
         try
         {
             var result = await System.Threading.Tasks.Task.Run(() => SyncService.ExecuteAsync(_config, SftpPassword, dry, _syncCts.Token, new Progress<(int, int, string)>(p => Application.Current.Dispatcher.Invoke(() => StatusText = p.Item3))));
-            _syncCompletedSuccessfully = true; if (isScheduled) LogScheduler($"Sync OK: {result.Results.Count} ops");
+            _syncCompletedSuccessfully = true;
             foreach (var (vmid, h) in result.Health) { var row = VmRows.FirstOrDefault(r => r.VmId == vmid); if (row != null) { row.SourceCount = h.SourceCount; row.ExternalCount = h.ExternalCount; row.NewestExternal = h.Newest?.ToString("yyyy-MM-dd HH:mm") ?? "None"; row.HealthStatus = h.Status; row.HealthDetails = h.Message; } }
             StatusText = $"{(dry ? "Dry run" : "Sync")} complete: {result.Results.Count} operation(s); warnings: {result.Warnings.Count}";
             var vmSnap = JsonSerializer.Serialize(result.Health.ToDictionary(h => h.Key.ToString(), h => new { vmid = h.Key, name = _config.Vms.FirstOrDefault(v => v.VmId == h.Key)?.Name ?? "", importance = _config.Vms.FirstOrDefault(v => v.VmId == h.Key)?.Importance ?? 1, required_copies = _config.Vms.FirstOrDefault(v => v.VmId == h.Key)?.Copies ?? 1, source_copies = h.Value.SourceCount, external_copies = h.Value.ExternalCount, newest_external = h.Value.Newest?.ToString("o") ?? "", health = h.Value.Status, details = h.Value.Message }));
             HistoryService.Add(dry ? "Dry Run" : "Sync / Copy", dry ? "Dry run completed" : "Success", StatusText, result.SourceCount, result.ExternalCount, result.Results.Count, result.Warnings.Count, vmSnap); RefreshHistory();
             if (!dry) { try { await NtfyService.SendAsync(_config, "DarkSync Sync Complete", $"{StatusText}\nSource: {result.SourceCount}\nExternal: {result.ExternalCount}\nWarnings: {result.Warnings.Count}", true); } catch { } }
-            if (!isScheduled && result.Results.Count > 0) { var lines = result.Results.Take(30).Select(r => $"{r.Item1} VM {r.Item2}: {r.Item3}"); MessageBox.Show(StatusText + "\n\n" + string.Join("\n", lines), "Results", MessageBoxButton.OK, MessageBoxImage.Information); }
         }
-        catch (OperationCanceledException) { StatusText = "Operation cancelled."; if (isScheduled) LogScheduler("Cancelled"); }
-        catch (Exception ex) { StatusText = "Failed; see error log"; if (isScheduled) LogScheduler($"Failed: {ex.Message}"); try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "darksync_proxmox_error.log"), ex.ToString()); } catch { } HistoryService.Add("Operation", "Failed", ex.Message.Length > 4000 ? ex.Message[..4000] : ex.Message); RefreshHistory(); try { await NtfyService.SendAsync(_config, "DarkSync Backup Failed", ex.Message.Length > 3000 ? ex.Message[..3000] : ex.Message, false); } catch { } if (!isScheduled) MessageBox.Show(ex.Message.Length > 4000 ? ex.Message[..4000] : ex.Message, "Operation failed", MessageBoxButton.OK, MessageBoxImage.Error); }
+        catch (OperationCanceledException) { StatusText = "Operation cancelled."; }
+        catch (Exception ex) { StatusText = "Failed; see error log"; try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "darksync_proxmox_error.log"), ex.ToString()); } catch { } HistoryService.Add("Operation", "Failed", ex.Message.Length > 4000 ? ex.Message[..4000] : ex.Message); RefreshHistory(); try { await NtfyService.SendAsync(_config, "DarkSync Backup Failed", ex.Message.Length > 3000 ? ex.Message[..3000] : ex.Message, false); } catch { } if (!isScheduled) MessageBox.Show(ex.Message.Length > 4000 ? ex.Message[..4000] : ex.Message, "Operation failed", MessageBoxButton.OK, MessageBoxImage.Error); }
         finally { IsRunning = false; _syncCts?.Dispose(); _syncCts = null; }
     }
 
@@ -309,37 +304,29 @@ public partial class MainViewModel : ObservableObject
         _schedulerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _schedulerTimer.Tick += async (_, _) => { try { await CheckScheduleAsync(); } catch (Exception ex) { LogScheduler($"Tick exception: {ex.Message}"); } };
         _schedulerTimer.Start();
-        LogScheduler($"Timer started. Enabled={ScheduleEnabled}, Time='{ScheduleTime}'");
     }
 
     private async Task CheckScheduleAsync()
     {
-        LogScheduler($"Tick: enabled={ScheduleEnabled}, time='{ScheduleTime}', running={_scheduleRunning}");
         if (_scheduleRunning || !ScheduleEnabled) return;
-        if (!TimeOnly.TryParse(ScheduleTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduled)) { LogScheduler($"Bad time: '{ScheduleTime}'"); return; }
+        if (!TimeOnly.TryParse(ScheduleTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduled)) return;
         var now = DateTime.Now; var today = now.Date.ToString("yyyy-MM-dd");
         var due = new TimeOnly(now.Hour, now.Minute) >= scheduled;
         _config = CollectConfig();
-        LogScheduler($"now={now:HH:mm}, scheduled={scheduled:HH:mm}, due={due}, lastRun='{_config.ScheduleLastRunDate}'");
-        if (_config.ScheduleLastRunDate == today) { LogScheduler("Already ran today."); return; }
-        if (!due) { LogScheduler("Not due yet."); return; }
+        if (_config.ScheduleLastRunDate == today) return;
+        if (!due) return;
         _scheduleRunning = true;
         try
         {
             StatusText = $"[Scheduler] Starting {(ScheduleDryRun ? "Dry Run" : "Sync")} at {now:HH:mm:ss}...";
-            LogScheduler(">>> TRIGGERED");
             await RunSyncAsync(dry: ScheduleDryRun, isScheduled: true);
-            if (_syncCompletedSuccessfully) { _config.ScheduleLastRunDate = today; ConfigService.Save(_config); LogScheduler($"Marked run for {today}"); }
-            else LogScheduler("Sync did not complete.");
+            if (_syncCompletedSuccessfully) { _config.ScheduleLastRunDate = today; ConfigService.Save(_config); }
         }
-        catch (Exception ex) { StatusText = $"Scheduled run failed: {ex.Message}"; LogScheduler($"Exception: {ex.Message}"); }
+        catch (Exception ex) { StatusText = $"Scheduled run failed: {ex.Message}"; }
         finally { _scheduleRunning = false; UpdateScheduleStatus(); }
     }
 
-    private static void LogScheduler(string message)
-    {
-        try { var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkSync"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir, "scheduler.log"), $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n"); } catch { }
-    }
+    private static void LogScheduler(string message) { try { var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkSync"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir, "scheduler.log"), $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n"); } catch { } }
 
     partial void OnScheduleEnabledChanged(bool value) => UpdateScheduleStatus();
     partial void OnScheduleTimeChanged(string value) => UpdateScheduleStatus();
