@@ -387,8 +387,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private async Task RunSyncAsync(bool dry = false)
+    private async Task RunSyncAsync(bool dry = false, bool isScheduled = false)
     {
         if (IsRunning) return;
 
@@ -408,12 +407,15 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Invalid configuration", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!isScheduled)
+                MessageBox.Show(ex.Message, "Invalid configuration", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
-        if (!dry && MessageBox.Show($"Copy required backups now?\n\nOld-copy handling: {Retention}",
-            "Run sync", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+        // Confirmation dialog — only for manual runs, never for scheduled
+        if (!dry && !isScheduled &&
+            MessageBox.Show($"Copy required backups now?\n\nOld-copy handling: {Retention}",
+                "Run sync", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
             return;
 
         IsRunning = true;
@@ -478,7 +480,8 @@ public partial class MainViewModel : ObservableObject
                 catch { }
             }
 
-            if (result.Results.Count > 0)
+            // Results dialog — only for manual runs
+            if (!isScheduled && result.Results.Count > 0)
             {
                 var lines = result.Results.Take(30).Select(r => $"{r.Item1} VM {r.Item2}: {r.Item3}");
                 MessageBox.Show(StatusText + "\n\n" + string.Join("\n", lines), "Results", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -495,7 +498,8 @@ public partial class MainViewModel : ObservableObject
             HistoryService.Add("Operation", "Failed", ex.Message.Length > 4000 ? ex.Message[..4000] : ex.Message);
             RefreshHistory();
             try { await NtfyService.SendAsync(_config, "DarkSync Backup Failed", ex.Message.Length > 3000 ? ex.Message[..3000] : ex.Message, false); } catch { }
-            MessageBox.Show(ex.Message.Length > 4000 ? ex.Message[..4000] : ex.Message, "Operation failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!isScheduled)
+                MessageBox.Show(ex.Message.Length > 4000 ? ex.Message[..4000] : ex.Message, "Operation failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -506,10 +510,10 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private Task DryRunAsync() => RunSyncAsync(true);
+    private Task DryRunAsync() => RunSyncAsync(dry: true);
 
     [RelayCommand]
-    private Task SyncAsync() => RunSyncAsync(false);
+    private Task SyncAsync() => RunSyncAsync(dry: false);
 
     [RelayCommand]
     private void Cancel()
@@ -645,7 +649,7 @@ public partial class MainViewModel : ObservableObject
         {
             StatusText = $"Starting scheduled {(ScheduleDryRun ? "Dry Run" : "Sync")}...";
             var wasRunning = IsRunning;
-            await RunSyncAsync(ScheduleDryRun);
+            await RunSyncAsync(dry: ScheduleDryRun, isScheduled: true);
 
             // Only mark as run if the operation actually executed
             // (not if the user declined the confirmation dialog)
@@ -719,7 +723,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task TriggerScheduledNowAsync()
     {
-        await RunSyncAsync(ScheduleDryRun);
+        await RunSyncAsync(dry: ScheduleDryRun, isScheduled: true);
     }
 
     [RelayCommand]
