@@ -142,13 +142,10 @@ public partial class MainViewModel : ObservableObject
     {
         try
         {
-            var oldTime = _config.ScheduleTime;
-            var oldEnabled = _config.ScheduleEnabled;
-            var oldDryRun = _config.ScheduleDryRun;
             _config = CollectConfig();
-            // Reset last-run date when schedule settings change so it can re-trigger
-            if (_config.ScheduleTime != oldTime || _config.ScheduleEnabled != oldEnabled || _config.ScheduleDryRun != oldDryRun)
-                _config.ScheduleLastRunDate = "";
+            // Always reset last-run date on save so the scheduler can re-trigger
+            // if the user changed the time or mode since the last run
+            _config.ScheduleLastRunDate = "";
             ConfigService.Save(_config); SavePassword(); StatusText = "Configuration saved"; UpdateScheduleStatus();
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error); }
