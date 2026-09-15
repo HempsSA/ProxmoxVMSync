@@ -69,4 +69,7 @@ public class Config
 
     [JsonPropertyName("schedule_last_abort_notify_date")]
     public string ScheduleLastAbortNotifyDate { get; set; } = "";
+
+    [JsonPropertyName("start_with_windows")]
+    public bool StartWithWindows { get; set; }
 }

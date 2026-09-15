@@ -5,7 +5,7 @@
         xmlns:local="clr-namespace:DarkSync.Views"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="DarkSync Proxmox Archive 2.0.0" Height="820" Width="1450"
-        WindowStartupLocation="CenterScreen" MinHeight="600" MinWidth="900"
+        WindowStartupLocation="CenterScreen" WindowState="Maximized" MinHeight="600" MinWidth="900"
         Icon="pack://application:,,,/DarkSync;component/DarkSync_Proxmox_Archive.ico"
         Background="{DynamicResource WindowBrush}"
         Foreground="{DynamicResource ForegroundBrush}">
@@ -162,6 +162,17 @@
                                 <TextBox Text="{Binding MinFreeGb, UpdateSourceTrigger=PropertyChanged}" Width="80" Margin="0,0,8,0"/>
                                 <TextBlock Text="GB" VerticalAlignment="Center"/>
                             </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Startup" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <CheckBox Content="Start DarkSync with Windows (as Administrator)"
+                                      IsChecked="{Binding StartWithWindows}" Margin="0,0,0,8"/>
+                            <TextBlock Text="{Binding StartupStatusText}" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource AccentBlue}" FontWeight="SemiBold"/>
+                            <TextBlock Text="Creates a Windows Task Scheduler entry that launches DarkSync with elevated privileges each time you log in."
+                                       TextWrapping="Wrap" Foreground="{DynamicResource MutedForegroundBrush}" Margin="0,8,0,0"/>
                         </StackPanel>
                     </GroupBox>
 

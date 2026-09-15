@@ -199,6 +199,7 @@ public static class ConfigService
         c.ScheduleConsecutiveFailures = GetInt(d, "schedule_consecutive_failures", 0);
         c.ScheduleLastResult = GetString(d, "schedule_last_result");
         c.ScheduleLastAbortNotifyDate = GetString(d, "schedule_last_abort_notify_date");
+        c.StartWithWindows = GetBool(d, "start_with_windows", false);
 
         return c;
     }

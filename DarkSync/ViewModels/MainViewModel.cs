@@ -63,6 +63,9 @@ public partial class MainViewModel : ObservableObject
     private bool _isDarkTheme = ThemeService.Current == ThemeService.Dark;
     public string ThemeToggleLabel => IsDarkTheme ? "☀ Light" : "🌙 Dark";
 
+    [ObservableProperty] private bool _startWithWindows;
+    [ObservableProperty] private string _startupStatusText = "";
+
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private bool _isSftpTestRunning;
 
@@ -83,6 +86,7 @@ public partial class MainViewModel : ObservableObject
         RefreshHistory();
         UpdateScheduleStatus();
         _ = CheckScheduleAsync();
+        _ = RefreshStartupStatusAsync();
     }
 
     private void LoadFromConfig()
@@ -103,6 +107,7 @@ public partial class MainViewModel : ObservableObject
         ScheduleEnabled = _config.ScheduleEnabled;
         ScheduleTime = _config.ScheduleTime;
         ScheduleDryRun = _config.ScheduleDryRun;
+        StartWithWindows = _config.StartWithWindows;
         VmRows.Clear();
         foreach (var vm in _config.Vms) VmRows.Add(new VmRow(vm));
     }
@@ -134,7 +139,8 @@ public partial class MainViewModel : ObservableObject
             NtfyEnabled = NtfyEnabled, NtfyServer = NtfyServer, NtfyTopic = NtfyTopic, NtfyToken = NtfyToken,
             NtfyPriority = NtfyPriority, NtfyOnSuccess = NtfyOnSuccess, NtfyOnFailure = NtfyOnFailure,
             ScheduleEnabled = ScheduleEnabled, ScheduleTime = ScheduleTime, ScheduleDryRun = ScheduleDryRun,
-            ScheduleLastRunDate = _config.ScheduleLastRunDate
+            ScheduleLastRunDate = _config.ScheduleLastRunDate,
+            StartWithWindows = StartWithWindows
         };
     }
 
@@ -333,11 +339,57 @@ public partial class MainViewModel : ObservableObject
     partial void OnScheduleTimeChanged(string value) => UpdateScheduleStatus();
     partial void OnScheduleDryRunChanged(bool value) => UpdateScheduleStatus();
 
+    partial void OnStartWithWindowsChanged(bool value)
+    {
+        _ = ToggleStartupAsync(value);
+    }
+
     private void UpdateScheduleStatus()
     {
         if (!ScheduleEnabled) { ScheduleStatusText = "Disabled"; return; }
         var last = string.IsNullOrEmpty(_config.ScheduleLastRunDate) ? "never" : _config.ScheduleLastRunDate;
         ScheduleStatusText = $"Enabled: {(ScheduleDryRun ? "Dry Run" : "Sync / Copy")} daily at {ScheduleTime}. Last run: {last}.";
+    }
+
+    // ── Startup ──────────────────────────────────────────────
+
+    private async Task RefreshStartupStatusAsync()
+    {
+        try
+        {
+            var registered = await StartupService.IsRegisteredAsync();
+            StartupStatusText = registered ? "Registered – app will start as Administrator on logon." : "Not registered.";
+        }
+        catch
+        {
+            StartupStatusText = "";
+        }
+    }
+
+    private async Task ToggleStartupAsync(bool enable)
+    {
+        try
+        {
+            if (enable)
+            {
+                var (ok, msg) = await StartupService.RegisterAsync();
+                StartupStatusText = msg;
+                if (!ok) { StartWithWindows = false; Save(); StatusText = "Startup registration failed"; }
+                else { StatusText = "Start with Windows enabled"; Save(); }
+            }
+            else
+            {
+                var (ok, msg) = await StartupService.UnregisterAsync();
+                StartupStatusText = msg;
+                if (!ok) { StartWithWindows = true; Save(); StatusText = "Startup removal failed"; }
+                else { StatusText = "Start with Windows disabled"; Save(); }
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Startup change failed: {ex.Message}";
+            await RefreshStartupStatusAsync();
+        }
     }
 
     // ── Credentials ──────────────────────────────────────────────
